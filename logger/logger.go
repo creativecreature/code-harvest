@@ -2,7 +2,7 @@ package logger
 
 // NOTE: The source code for the logger is from Alex Edwards book "Lets go
 // further". I've asked for Alex permission to use this code, and I really
-// recommend both of the books he has written.
+// recommend both of the books he has written!
 
 import (
 	"encoding/json"

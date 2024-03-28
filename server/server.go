@@ -39,10 +39,6 @@ type Server struct {
 // startNewSession creates a new session and sets it as the current session.
 func (s *Server) startNewSession(id, os, editor string) {
 	s.log.PrintDebug("Starting a new session", nil)
-	now := s.clock.GetTime()
-	if activeSession := s.activeSessions[id]; activeSession != nil {
-		activeSession.Pause(now)
-	}
 	s.activeSessions[id] = codeharvest.StartSession(id, s.clock.GetTime(), os, editor)
 }
 
@@ -97,6 +93,10 @@ func (s *Server) saveAllSessions() {
 	s.log.PrintDebug("Saving all sessions.", nil)
 	endedAt := s.clock.GetTime()
 	for _, session := range s.activeSessions {
+		if !session.HasBuffers() {
+			s.log.PrintDebug("The session has not opened any buffers.", nil)
+			return
+		}
 		finishedSession := session.End(endedAt)
 		totalFileDuration := finishedSession.TotalFileDuration()
 		if !hasOkDurations(finishedSession.DurationMs, totalFileDuration) {
@@ -120,12 +120,11 @@ func (s *Server) saveAllSessions() {
 
 // saveSession ends the current coding session and saves it to the filesystem.
 func (s *Server) saveActiveSession() {
-	if s.activeEditor == "" {
-		s.log.PrintDebug("There was no session to save.", nil)
+	if !s.activeSessions[s.activeEditor].HasBuffers() {
+		s.log.PrintDebug("The active session has not opened any buffers.", nil)
 		return
 	}
 
-	// End the current session.
 	s.log.PrintDebug("Saving the session.", nil)
 	endedAt := s.clock.GetTime()
 	finishedSession := s.activeSessions[s.activeEditor].End(endedAt)
@@ -151,6 +150,25 @@ func (s *Server) saveActiveSession() {
 
 	delete(s.activeSessions, s.activeEditor)
 	s.activeEditor = ""
+
+	// Check if we should resume another session.
+	if len(s.activeSessions) < 1 {
+		return
+	}
+
+	var editorToResume string
+	var mostRecentPause int64
+	for _, session := range s.activeSessions {
+		if session.PauseTime() > mostRecentPause {
+			editorToResume = session.EditorID
+			mostRecentPause = session.PauseTime()
+		}
+	}
+
+	if editorToResume != "" {
+		s.activeEditor = editorToResume
+		s.activeSessions[s.activeEditor].Resume(s.clock.GetTime())
+	}
 }
 
 func (s *Server) startServer(port string) (*http.Server, error) {

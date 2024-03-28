@@ -33,6 +33,16 @@ func (s *Server) FocusGained(event codeharvest.Event, reply *string) error {
 	// running in another tmux pane. If so, we'll stop recording
 	// time for that session before creating a new one.
 	if s.activeEditor != "" {
+		// If we already have an existing session active, we wont create
+		// a new one until it actually opens a buffer with a path.
+		// TODO: This could cause issues if its a path that isn't empty string but
+		// still invalid. Ideally, I don't want to pause the current session unless
+		// I'm able to create a buffer from this path?
+		if event.Path == "" {
+			return nil
+		}
+
+		// Pause the current session if we have a valid path.
 		s.activeSessions[s.activeEditor].Pause(s.clock.GetTime())
 	}
 	s.activeEditor = event.EditorID
@@ -66,6 +76,10 @@ func (s *Server) OpenFile(event codeharvest.Event, reply *string) error {
 	err := s.FocusGained(event, reply)
 	if err != nil {
 		return err
+	}
+
+	if event.Path == "" {
+		return nil
 	}
 
 	// Lock the mutex to prevent race conditions with the heartbeat check.

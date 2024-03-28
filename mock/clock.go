@@ -12,3 +12,7 @@ func (c *Clock) GetTime() int64 {
 func (c *Clock) SetTime(time int64) {
 	c.time = time
 }
+
+func (c *Clock) AddTime(time int64) {
+	c.time += time
+}

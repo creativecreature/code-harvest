@@ -25,51 +25,62 @@ func StartSession(editorID string, startedAt int64, os, editor string) *ActiveSe
 	}
 }
 
-func (session *ActiveSession) Pause(time int64) {
-	if currentBuffer := session.bufStack.peek(); currentBuffer != nil {
+func (s *ActiveSession) Pause(time int64) {
+	if currentBuffer := s.bufStack.peek(); currentBuffer != nil {
 		currentBuffer.Close(time)
 	}
-	session.startStops = append(session.startStops, time)
+	s.startStops = append(s.startStops, time)
 }
 
-func (session *ActiveSession) Resume(time int64) {
-	if currentBuffer := session.bufStack.peek(); currentBuffer != nil {
+func (s *ActiveSession) PauseTime() int64 {
+	if len(s.startStops) == 0 {
+		return 0
+	}
+	return s.startStops[len(s.startStops)-1]
+}
+
+func (s *ActiveSession) Resume(time int64) {
+	if currentBuffer := s.bufStack.peek(); currentBuffer != nil {
 		currentBuffer.Open(time)
 	}
-	session.startStops = append(session.startStops, time)
+	s.startStops = append(s.startStops, time)
 }
 
 // PushBuffer pushes a new buffer to the current sessions buffer stack.
-func (session *ActiveSession) PushBuffer(buffer Buffer) {
+func (s *ActiveSession) PushBuffer(buffer Buffer) {
 	// Stop recording time for the previous buffer.
-	if currentBuffer := session.bufStack.peek(); currentBuffer != nil {
+	if currentBuffer := s.bufStack.peek(); currentBuffer != nil {
 		currentBuffer.Close(buffer.LastOpened())
 	}
-	session.bufStack.push(buffer)
+	s.bufStack.push(buffer)
 }
 
-func (session *ActiveSession) Duration() int64 {
+func (s *ActiveSession) HasBuffers() bool {
+	return len(s.bufStack.buffers) > 0
+}
+
+func (s *ActiveSession) Duration() int64 {
 	var duration int64
-	for i := 0; i < len(session.startStops); i += 2 {
-		duration += session.startStops[i+1] - session.startStops[i]
+	for i := 0; i < len(s.startStops); i += 2 {
+		duration += s.startStops[i+1] - s.startStops[i]
 	}
 	return duration
 }
 
 // End ends the active coding sessions. It sets the total duration in
 // milliseconds, and turns the stack of buffers into a slice of files.
-func (session *ActiveSession) End(endedAt int64) Session {
-	if currentBuffer := session.bufStack.peek(); currentBuffer != nil && currentBuffer.IsOpen() {
+func (s *ActiveSession) End(endedAt int64) Session {
+	if currentBuffer := s.bufStack.peek(); currentBuffer != nil && currentBuffer.IsOpen() {
 		currentBuffer.Close(endedAt)
 	}
-	session.startStops = append(session.startStops, endedAt)
+	s.startStops = append(s.startStops, endedAt)
 
 	return Session{
-		StartedAt:  session.StartedAt,
+		StartedAt:  s.StartedAt,
 		EndedAt:    endedAt,
-		DurationMs: session.Duration(),
-		OS:         session.OS,
-		Editor:     session.Editor,
-		Files:      session.bufStack.files(),
+		DurationMs: s.Duration(),
+		OS:         s.OS,
+		Editor:     s.Editor,
+		Files:      s.bufStack.files(),
 	}
 }
