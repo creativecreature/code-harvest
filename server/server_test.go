@@ -24,10 +24,10 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		server.WithStorage(mockStorage),
 	)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
-	// Open a new VIM instance
+	// Open a new VIM window
 	reply := ""
 	err = a.FocusGained(codeharvest.Event{
 		EditorID: "123",
@@ -39,7 +39,7 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		panic(err)
 	}
 
-	// Open a file in the first instance
+	// Open a file in the first window
 	mockFileReader.SetFile(
 		codeharvest.GitFile{
 			Name:       "install.sh",
@@ -58,7 +58,7 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		panic(err)
 	}
 
-	// Open another vim instance in a new split. This should end the previous session.
+	// Open another VIM window in a new split. This should pause the previous session.
 	err = a.FocusGained(codeharvest.Event{
 		EditorID: "345",
 		Path:     "",
@@ -69,7 +69,7 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		panic(err)
 	}
 
-	// Open a file in the second vim instance
+	// Open a file in the second VIM window.
 	mockFileReader.SetFile(
 		codeharvest.GitFile{
 			Name:       "bootstrap.sh",
@@ -88,7 +88,8 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		panic(err)
 	}
 
-	// Move focus back to the first VIM instance. This should end the second session.
+	// Move focus back to the first VIM window. This should
+	// resumse that session, and pause the second one.
 	mockFileReader.SetFile(
 		codeharvest.GitFile{
 			Name:       "install.sh",
@@ -107,7 +108,7 @@ func TestJumpingBetweenInstances(t *testing.T) {
 		panic(err)
 	}
 
-	// End the last session. We should now have 3 finished sessiona.
+	// End the first session.
 	err = a.EndSession(codeharvest.Event{
 		EditorID: "123",
 		Path:     "",
@@ -117,7 +118,28 @@ func TestJumpingBetweenInstances(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	expectedNumberOfSessions := 3
+
+	// Move the focus back to the second VIM window, and end it too.
+	err = a.FocusGained(codeharvest.Event{
+		EditorID: "345",
+		Path:     "",
+		Editor:   "nvim",
+		OS:       "Linux",
+	}, &reply)
+	if err != nil {
+		panic(err)
+	}
+	err = a.EndSession(codeharvest.Event{
+		EditorID: "123",
+		Path:     "",
+		Editor:   "nvim",
+		OS:       "Linux",
+	}, &reply)
+	if err != nil {
+		panic(err)
+	}
+
+	expectedNumberOfSessions := 2
 	storedSessions, _ := mockStorage.Read()
 
 	if len(storedSessions) != expectedNumberOfSessions {
@@ -138,7 +160,7 @@ func TestJumpBackAndForthToTheSameInstance(t *testing.T) {
 		server.WithStorage(mockStorage),
 	)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	// Open a new instance of VIM

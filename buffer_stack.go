@@ -46,7 +46,7 @@ func (s *bufferStack) files() Files {
 		if file, exists := pathFile[buffer.Filepath]; !exists {
 			pathFile[buffer.Filepath] = fileFromBuffer(buffer)
 		} else {
-			file.DurationMs += buffer.ClosedAt - buffer.OpenedAt
+			file.DurationMs += buffer.Duration()
 			pathFile[buffer.Filepath] = file
 		}
 	}

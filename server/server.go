@@ -25,20 +25,25 @@ const (
 )
 
 type Server struct {
-	name          string
-	activeSession *codeharvest.ActiveSession
-	lastHeartbeat int64
-	clock         Clock
-	fileReader    FileReader
-	log           Log
-	mutex         sync.Mutex
-	storage       codeharvest.TemporaryStorage
+	name           string
+	activeEditor   string
+	activeSessions map[string]*codeharvest.ActiveSession
+	lastHeartbeat  int64
+	clock          Clock
+	fileReader     FileReader
+	log            Log
+	mutex          sync.Mutex
+	storage        codeharvest.TemporaryStorage
 }
 
 // startNewSession creates a new session and sets it as the current session.
 func (s *Server) startNewSession(id, os, editor string) {
 	s.log.PrintDebug("Starting a new session", nil)
-	s.activeSession = codeharvest.StartSession(id, s.clock.GetTime(), os, editor)
+	now := s.clock.GetTime()
+	if activeSession := s.activeSessions[id]; activeSession != nil {
+		activeSession.Pause(now)
+	}
+	s.activeSessions[id] = codeharvest.StartSession(id, s.clock.GetTime(), os, editor)
 }
 
 // setActiveBuffer updates the current buffer in the current session.
@@ -56,15 +61,14 @@ func (s *Server) setActiveBuffer(absolutePath string) {
 		return
 	}
 
-	file := codeharvest.NewBuffer(
+	buf := codeharvest.NewBuffer(
 		fileData.Name,
 		fileData.Repository,
 		fileData.Filetype,
 		fileData.Path,
 		openedAt,
 	)
-
-	s.activeSession.PushBuffer(file)
+	s.activeSessions[s.activeEditor].PushBuffer(buf)
 	updatedBufferMsg := "Successfully updated the current buffer"
 	updatedBufferProperties := map[string]string{
 		"path": absolutePath,
@@ -89,9 +93,34 @@ func hasOkDurations(sessionDuration, allFilesDuration int64) bool {
 	return difference <= threshold
 }
 
+func (s *Server) saveAllSessions() {
+	s.log.PrintDebug("Saving all sessions.", nil)
+	endedAt := s.clock.GetTime()
+	for _, session := range s.activeSessions {
+		finishedSession := session.End(endedAt)
+		totalFileDuration := finishedSession.TotalFileDuration()
+		if !hasOkDurations(finishedSession.DurationMs, totalFileDuration) {
+			finishedSession.DurationMs = totalFileDuration
+			err := errors.New("session had a large duration diff")
+			properties := map[string]string{
+				"started_at":                strconv.FormatInt(finishedSession.StartedAt, 10),
+				"ended_at":                  strconv.FormatInt(endedAt, 10),
+				"previous_session_duration": strconv.FormatInt(finishedSession.DurationMs, 10),
+				"new_session_duration":      strconv.FormatInt(totalFileDuration, 10),
+			}
+			s.log.PrintError(err, properties)
+		}
+		err := s.storage.Write(finishedSession)
+		if err != nil {
+			s.log.PrintError(err, nil)
+		}
+		delete(s.activeSessions, session.EditorID)
+	}
+}
+
 // saveSession ends the current coding session and saves it to the filesystem.
-func (s *Server) saveSession() {
-	if s.activeSession == nil {
+func (s *Server) saveActiveSession() {
+	if s.activeEditor == "" {
 		s.log.PrintDebug("There was no session to save.", nil)
 		return
 	}
@@ -99,7 +128,7 @@ func (s *Server) saveSession() {
 	// End the current session.
 	s.log.PrintDebug("Saving the session.", nil)
 	endedAt := s.clock.GetTime()
-	finishedSession := s.activeSession.End(endedAt)
+	finishedSession := s.activeSessions[s.activeEditor].End(endedAt)
 
 	// Perform sanity checks on the durations.
 	totalFileDuration := finishedSession.TotalFileDuration()
@@ -107,7 +136,7 @@ func (s *Server) saveSession() {
 		finishedSession.DurationMs = totalFileDuration
 		err := errors.New("session had a large duration diff")
 		properties := map[string]string{
-			"started_at":                strconv.FormatInt(s.activeSession.StartedAt, 10),
+			"started_at":                strconv.FormatInt(finishedSession.StartedAt, 10),
 			"ended_at":                  strconv.FormatInt(endedAt, 10),
 			"previous_session_duration": strconv.FormatInt(finishedSession.DurationMs, 10),
 			"new_session_duration":      strconv.FormatInt(totalFileDuration, 10),
@@ -120,7 +149,8 @@ func (s *Server) saveSession() {
 		s.log.PrintError(err, nil)
 	}
 
-	s.activeSession = nil
+	delete(s.activeSessions, s.activeEditor)
+	s.activeEditor = ""
 }
 
 func (s *Server) startServer(port string) (*http.Server, error) {
@@ -192,7 +222,7 @@ func (s *Server) Start(port string) error {
 	}
 
 	// Save the current session before shutting down.
-	s.saveSession()
+	s.saveAllSessions()
 	s.log.PrintInfo("Shutting down...", nil)
 
 	return nil

@@ -78,9 +78,10 @@ func WithLog(log Log) Option {
 // New creates a new server.
 func New(serverName string, opts ...Option) (*Server, error) {
 	a := &Server{
-		name:       serverName,
-		clock:      clock.New(),
-		fileReader: filereader.New(),
+		name:           serverName,
+		activeSessions: make(map[string]*codeharvest.ActiveSession),
+		clock:          clock.New(),
+		fileReader:     filereader.New(),
 	}
 	for _, opt := range opts {
 		err := opt(a)
